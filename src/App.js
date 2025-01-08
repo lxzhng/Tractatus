@@ -19,21 +19,17 @@ import '@xyflow/react/dist/style.css';
 /* -------------------------
  * 1. Custom Node Component
  * -------------------------
- * - Local state for the text field so typing doesn't
- *   lose focus or cause rerenders of the entire flow.
- * - Has a top "target" handle and bottom "source" handle
- *   for vertical connections.
+ * - Editable text field (local state).
+ * - Top "target" handle, bottom "source" handle.
  */
 const TextNode = memo(({ id, data }) => {
   const { updateNodeData } = useReactFlow();
   const [localText, setLocalText] = useState(data?.text || '');
 
-  // Only commit to global flow on blur or Enter
   const commitChange = useCallback(() => {
     updateNodeData(id, { text: localText });
   }, [id, localText, updateNodeData]);
 
-  // Prevent node-drag events while clicking/typing inside the input
   const stopPropagation = (e) => e.stopPropagation();
 
   return (
@@ -47,12 +43,8 @@ const TextNode = memo(({ id, data }) => {
         textAlign: 'center',
       }}
     >
-      {/* Target handle on top (incoming connections) */}
-      <Handle
-        type="target"
-        position={Position.Top}
-        style={{ background: '#555' }}
-      />
+      {/* Top handle (incoming) */}
+      <Handle type="target" position={Position.Top} style={{ background: '#555' }} />
 
       <input
         style={{
@@ -67,20 +59,14 @@ const TextNode = memo(({ id, data }) => {
         onChange={(e) => setLocalText(e.target.value)}
         onBlur={commitChange}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.target.blur(); // triggers onBlur -> commitChange
-          }
+          if (e.key === 'Enter') e.target.blur();
         }}
         onMouseDown={stopPropagation}
         onClick={stopPropagation}
       />
 
-      {/* Source handle on bottom (outgoing connections) */}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        style={{ background: '#555' }}
-      />
+      {/* Bottom handle (outgoing) */}
+      <Handle type="source" position={Position.Bottom} style={{ background: '#555' }} />
     </div>
   );
 });
@@ -88,14 +74,16 @@ const TextNode = memo(({ id, data }) => {
 /* -------------------------
  * 2. Custom Edge Component
  * -------------------------
- * - Uses a <foreignObject> to place an <input> directly on the edge
- *   so the user can edit the label in place.
- * - Local state to avoid losing focus while typing.
+ * - Editable label in a <foreignObject>.
+ * - Right-click to toggle direction (optional).
  */
 const TextEdge = memo(({ id, sourceX, sourceY, targetX, targetY, data, markerEnd, selected }) => {
-  const { updateEdgeData } = useReactFlow();
+  const { updateEdgeData, setEdges, getNode } = useReactFlow();
+
+  // local state so we can type without losing focus
   const [localLabel, setLocalLabel] = useState(data?.label || '');
 
+  // calculate a bezier path for the arrow
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -103,13 +91,31 @@ const TextEdge = memo(({ id, sourceX, sourceY, targetX, targetY, data, markerEnd
     targetY,
   });
 
-  // Commit changes to global flow on blur or Enter
-  const commitChange = useCallback(() => {
+  // commit label changes on blur / enter
+  const commitChange = () => {
     updateEdgeData(id, { label: localLabel });
-  }, [id, localLabel, updateEdgeData]);
+  };
 
-  // Prevent edge-drag events while clicking/typing inside the input
+  // prevent edge dragging while typing
   const stopPropagation = (e) => e.stopPropagation();
+
+  // (Optional) toggle direction on right-click
+  const handleContextMenu = (e) => {
+    e.preventDefault(); // default browser context menu
+    // Flip the edge: source -> target becomes target -> source
+    setEdges((eds) =>
+      eds.map((edge) => {
+        if (edge.id === id) {
+          return {
+            ...edge,
+            source: edge.target,
+            target: edge.source,
+          };
+        }
+        return edge;
+      })
+    );
+  };
 
   return (
     <>
@@ -122,7 +128,9 @@ const TextEdge = memo(({ id, sourceX, sourceY, targetX, targetY, data, markerEnd
           strokeWidth: 2,
         }}
         className="react-flow__edge-path"
+        onContextMenu={handleContextMenu} // right-click => flip direction
       />
+
       <foreignObject
         x={labelX - 50}
         y={labelY - 15}
@@ -140,16 +148,15 @@ const TextEdge = memo(({ id, sourceX, sourceY, targetX, targetY, data, markerEnd
           }}
           onMouseDown={stopPropagation}
           onClick={stopPropagation}
+          onContextMenu={stopPropagation}
         >
           <input
-            style={{ width: 90 }}
+            style={{ width: '90px' }}
             value={localLabel}
             onChange={(e) => setLocalLabel(e.target.value)}
             onBlur={commitChange}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.target.blur();
-              }
+              if (e.key === 'Enter') e.target.blur();
             }}
           />
         </div>
@@ -161,22 +168,10 @@ const TextEdge = memo(({ id, sourceX, sourceY, targetX, targetY, data, markerEnd
 /* -------------------------
  * 3. Initial Data
  * -------------------------
- * - Two nodes with empty text (node labels)
- * - One arrowed edge with a label
  */
 const initialNodes = [
-  {
-    id: '1',
-    type: 'textNode',
-    position: { x: 150, y: 50 },
-    data: { text: '' },
-  },
-  {
-    id: '2',
-    type: 'textNode',
-    position: { x: 150, y: 250 },
-    data: { text: '' },
-  },
+  { id: '1', type: 'textNode', position: { x: 150, y: 50 }, data: { text: '' } },
+  { id: '2', type: 'textNode', position: { x: 150, y: 250 }, data: { text: '' } },
 ];
 const initialEdges = [
   {
@@ -196,9 +191,11 @@ const initialEdges = [
 function FlowchartEditor() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const nodeCountRef = useRef(2);
 
-  // For adding new nodes
+  const nodeCountRef = useRef(2);
+  const { getNode } = useReactFlow();
+
+  // Add node button
   const addNode = useCallback(() => {
     nodeCountRef.current += 1;
     const newId = nodeCountRef.current.toString();
@@ -222,24 +219,51 @@ function FlowchartEditor() {
     link.click();
   }, [nodes, edges]);
 
-  // Connect nodes with arrow edges
+  /**
+   * 5. Auto-Generate Arrow Direction Based on Node Positions
+   *
+   * When the user draws a new edge, we compare the y-coordinates
+   * of the two connected nodes. If the "target" node is higher
+   * (y < y), we flip the source & target so that arrows always
+   * flow top -> bottom. (You can adjust logic for left->right, etc.)
+   */
   const onConnect = useCallback(
-    (params) =>
+    (connection) => {
+      // check node positions
+      const sourceNode = getNode(connection.source);
+      const targetNode = getNode(connection.target);
+
+      let finalSource = connection.source;
+      let finalTarget = connection.target;
+
+      if (sourceNode && targetNode) {
+        // if we want arrows from top to bottom:
+        // whichever node has the smaller y is the source
+        if (sourceNode.position.y > targetNode.position.y) {
+          // swap them
+          finalSource = connection.target;
+          finalTarget = connection.source;
+        }
+      }
+
       setEdges((eds) =>
         addEdge(
           {
-            ...params,
+            ...connection,
+            source: finalSource,
+            target: finalTarget,
             type: 'textEdge',
             markerEnd: { type: MarkerType.ArrowClosed },
             data: { label: '' },
           },
           eds
         )
-      ),
-    [setEdges]
+      );
+    },
+    [getNode, setEdges]
   );
 
-  // Register our custom node + edge components
+  // Register custom node/edge
   const nodeTypes = { textNode: TextNode };
   const edgeTypes = { textEdge: TextEdge };
 
@@ -271,13 +295,13 @@ function FlowchartEditor() {
       </button>
 
       <ReactFlow
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
         fitView
       >
         <Background variant="dots" gap={12} size={1} />
@@ -288,10 +312,7 @@ function FlowchartEditor() {
   );
 }
 
-/* -------------------------
- * 5. Wrap in Provider
- * -------------------------
- */
+// Wrap in the provider
 export default function App() {
   return (
     <ReactFlowProvider>

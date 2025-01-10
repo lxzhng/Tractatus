@@ -191,7 +191,7 @@ const initialEdges = [
 function FlowchartEditor() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-
+  const [essay, setEssay] = useState('');
   const nodeCountRef = useRef(2);
   const { getNode } = useReactFlow();
 
@@ -209,14 +209,53 @@ function FlowchartEditor() {
   }, [setNodes]);
 
   // Export to JSON
-  const exportToJson = useCallback(() => {
+  // const exportToJson = useCallback(() => {
+  //   const flowchartData = { nodes, edges };
+  //   const json = JSON.stringify(flowchartData, null, 2);
+  //   const blob = new Blob([json], { type: 'application/json' });
+  //   const link = document.createElement('a');
+  //   link.href = URL.createObjectURL(blob);
+  //   link.download = 'flowchart.json';
+  //   link.click();
+  // }, [nodes, edges]);
+
+  const generateEssay = useCallback(async () => {
     const flowchartData = { nodes, edges };
-    const json = JSON.stringify(flowchartData, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'flowchart.json';
-    link.click();
+    const flowchartJson = JSON.stringify(flowchartData, null, 2);
+    const prompt = `
+  Here's a JSON flowchart for an essay. Each node contains a point, and the edges show the logical connections between them. Write the essay in full prose form without referring to the flowchart or describing the nodes or connections.
+
+  ${flowchartJson}
+
+  `;
+  
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.REACT_APP_OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 500,
+      }),
+    });
+  
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('API Error:', errorData);
+      throw new Error(errorData.error || `API request failed with status ${response.status}`);
+    }
+  
+    const result = await response.json();
+    const essayText = result.choices[0]?.message.content;
+  
+    if (!essayText) {
+      throw new Error('Unexpected response format');
+    }
+  
+    setEssay(essayText);
   }, [nodes, edges]);
 
   /**
@@ -268,46 +307,68 @@ function FlowchartEditor() {
   const edgeTypes = { textEdge: TextEdge };
 
   return (
-    <div style={{ width: '100%', height: '100vh' }}>
-      <button
-        onClick={addNode}
-        style={{
-          position: 'absolute',
-          zIndex: 10,
-          left: 10,
-          top: 10,
-          padding: '8px 16px',
-        }}
-      >
-        Add Node
-      </button>
-      <button
-        onClick={exportToJson}
-        style={{
-          position: 'absolute',
-          zIndex: 10,
-          left: 110,
-          top: 10,
-          padding: '8px 16px',
-        }}
-      >
-        Export to JSON
-      </button>
+    <div style={{ display: 'flex', height: '100vh' }}>
+      <div style={{ flex: 1 }}>
+        <button
+          onClick={addNode}
+          style={{
+            position: 'absolute',
+            zIndex: 10,
+            left: 10,
+            top: 10,
+            padding: '8px 16px',
+          }}
+        >
+          Add Node
+        </button>
+        {/* <button
+          onClick={exportToJson}
+          style={{
+            position: 'absolute',
+            zIndex: 10,
+            left: 110,
+            top: 10,
+            padding: '8px 16px',
+          }}
+        >
+          Export to JSON
+        </button> */}
+        <button
+          onClick={generateEssay}
+          style={{
+            position: 'absolute',
+            zIndex: 10,
+            left: 210,
+            top: 10,
+            padding: '8px 16px',
+          }}
+        >
+          Generate Essay
+        </button>
 
-      <ReactFlow
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        fitView
-      >
-        <Background variant="dots" gap={12} size={1} />
-        <Controls />
-        <MiniMap />
-      </ReactFlow>
+        <ReactFlow
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          fitView
+        >
+          <Background variant="dots" gap={12} size={1} />
+          <Controls />
+          <MiniMap />
+        </ReactFlow>
+      </div>
+      <div style={{ width: '300px', padding: '10px', borderLeft: '1px solid #ccc' }}>
+        <h3>Generated Essay</h3>
+        <textarea
+          style={{ width: '100%', height: '100%', resize: 'none' }}
+          value={essay}
+          readOnly
+        />
+      </div>
     </div>
   );
 }

@@ -1,3 +1,3 @@
 # Tractatus
 
-Flwocharts -> essays
+Flowcharts -> essays

@@ -1,3 +1,3 @@
 # Tractatus
 
-[work in progress]
+Flwocharts -> essays
